@@ -701,23 +701,11 @@ contains
    if(nx.eq.local_end(1))then
       do j=local_start(2)-1,local_end(2)+1
 
-         !bb11(3,nx+1,j)= -bb11(0,nx,j)*(1.d0-1.d0/tv(0))-bb11(1,nx-1,j)-bb11(2,nx,j-1)-bb11(4,nx,j+1)
-         !bb12(3,nx+1,j)= -bb12(0,nx,j)*(1.d0-1.d0/tv(0))-bb12(1,nx-1,j)-bb12(2,nx,j-1)-bb12(4,nx,j+1)
-         !bb21(3,nx+1,j)= -bb21(0,nx,j)*(1.d0-1.d0/tv(0))-bb21(1,nx-1,j)-bb21(2,nx,j-1)-bb21(4,nx,j+1)
-         !bb22(3,nx+1,j)= -bb22(0,nx,j)*(1.d0-1.d0/tv(0))-bb22(1,nx-1,j)-bb22(2,nx,j-1)-bb22(4,nx,j+1)
-      
-         
       enddo
    endif
    if(0.eq.local_start(1))then
       do j=local_start(2)-1,local_end(2)+1
 
-         !bb11(1,-1,j)= -bb11(0,0,j)*(1.d0-1.d0/tv(0))-bb11(3,1,j)-bb11(2,0,j-1)-bb11(4,0,j+1)
-         !bb12(1,-1,j)= -bb12(0,0,j)*(1.d0-1.d0/tv(0))-bb12(3,1,j)-bb12(2,0,j-1)-bb12(4,0,j+1)
-         !bb21(1,-1,j)= -bb21(0,0,j)*(1.d0-1.d0/tv(0))-bb21(3,1,j)-bb21(2,0,j-1)-bb21(4,0,j+1)
-         !bb22(1,-1,j)= -bb22(0,0,j)*(1.d0-1.d0/tv(0))-bb22(3,1,j)-bb22(2,0,j-1)-bb22(4,0,j+1)
-   
-      
       enddo
    endif
 
@@ -730,11 +718,6 @@ contains
                gb1(iq,i,ny+1) = gb1(bc(iq),i+2*e(iq,1),ny-1)+2.d0*e(iq,1)*t(iq)*uu0/2*ny
             endif
          enddo
-
-         !bb11(4,i,ny+1)=  -bb11(0,i,ny)*(1.d0-1.d0/tv(0))-bb11(1,i-1,ny)-bb11(2,i,ny-1)-bb11(3,i+1,ny)
-         !bb12(4,i,ny+1)=  -bb12(0,i,ny)*(1.d0-1.d0/tv(0))-bb12(1,i-1,ny)-bb12(2,i,ny-1)-bb12(3,i+1,ny)
-         !bb21(4,i,ny+1)=  -bb21(0,i,ny)*(1.d0-1.d0/tv(0))-bb21(1,i-1,ny)-bb21(2,i,ny-1)-bb21(3,i+1,ny)
-         !bb22(4,i,ny+1)=  -bb22(0,i,ny)*(1.d0-1.d0/tv(0))-bb22(1,i-1,ny)-bb22(2,i,ny-1)-bb22(3,i+1,ny)
       enddo
    endif
    if(0.eq.local_start(2))then
@@ -746,12 +729,6 @@ contains
                gb1(iq,i,-1) = gb1(bc(iq),i+2*e(iq,1),1)-2.d0*e(iq,1)*t(iq)*uu0/2*ny
             endif
          enddo
-
-
-         !bb11(2,i,-1)= -bb11(0,i,0)*(1.d0-1.d0/tv(0))-bb11(1,i-1,0)-bb11(3,i+1,0)-bb11(4,i,1)
-         !bb12(2,i,-1)= -bb12(0,i,0)*(1.d0-1.d0/tv(0))-bb12(1,i-1,0)-bb12(3,i+1,0)-bb12(4,i,1)
-         !bb21(2,i,-1)= -bb21(0,i,0)*(1.d0-1.d0/tv(0))-bb21(1,i-1,0)-bb21(3,i+1,0)-bb21(4,i,1)
-         !bb22(2,i,-1)= -bb22(0,i,0)*(1.d0-1.d0/tv(0))-bb22(1,i-1,0)-bb22(3,i+1,0)-bb22(4,i,1)
       
       enddo
    endif
@@ -787,6 +764,51 @@ contains
       enddo
    enddo
    call MPI_BARRIER(CART_COMM,ierr)
+   if(nx.eq.local_end(1))then
+      do j=local_start(2)-1,local_end(2)+1
+
+         bb11(3,nx,j)= -bb11(0,nx,j)*(1.d0-1.d0/tv(0))-bb11(1,nx,j)-bb11(2,nx,j)-bb11(4,nx,j)
+         bb12(3,nx,j)= -bb12(0,nx,j)*(1.d0-1.d0/tv(0))-bb12(1,nx,j)-bb12(2,nx,j)-bb12(4,nx,j)
+         bb21(3,nx,j)= -bb21(0,nx,j)*(1.d0-1.d0/tv(0))-bb21(1,nx,j)-bb21(2,nx,j)-bb21(4,nx,j)
+         bb22(3,nx,j)= -bb22(0,nx,j)*(1.d0-1.d0/tv(0))-bb22(1,nx,j)-bb22(2,nx,j)-bb22(4,nx,j)
+      
+         
+      enddo
+   endif
+
+   if(0.eq.local_start(1))then
+      do j=local_start(2)-1,local_end(2)+1
+
+         bb11(1,0,j)= -bb11(0,0,j)*(1.d0-1.d0/tv(0))-bb11(3,0,j)-bb11(2,0,j)-bb11(4,0,j)
+         bb12(1,0,j)= -bb12(0,0,j)*(1.d0-1.d0/tv(0))-bb12(3,0,j)-bb12(2,0,j)-bb12(4,0,j)
+         bb21(1,0,j)= -bb21(0,0,j)*(1.d0-1.d0/tv(0))-bb21(3,0,j)-bb21(2,0,j)-bb21(4,0,j)
+         bb22(1,0,j)= -bb22(0,0,j)*(1.d0-1.d0/tv(0))-bb22(3,0,j)-bb22(2,0,j)-bb22(4,0,j)
+   
+      
+      enddo
+   endif
+
+   if(ny.eq.local_end(2))then
+      do i=local_start(1)-1,local_end(1)+1
+
+         bb11(4,i,ny)=  -bb11(0,i,ny)*(1.d0-1.d0/tv(0))-bb11(1,i,ny)-bb11(2,i,ny)-bb11(3,i,ny)
+         bb12(4,i,ny)=  -bb12(0,i,ny)*(1.d0-1.d0/tv(0))-bb12(1,i,ny)-bb12(2,i,ny)-bb12(3,i,ny)
+         bb21(4,i,ny)=  -bb21(0,i,ny)*(1.d0-1.d0/tv(0))-bb21(1,i,ny)-bb21(2,i,ny)-bb21(3,i,ny)
+         bb22(4,i,ny)=  -bb22(0,i,ny)*(1.d0-1.d0/tv(0))-bb22(1,i,ny)-bb22(2,i,ny)-bb22(3,i,ny)
+      enddo
+   endif
+   
+   if(0.eq.local_start(2))then
+      do i=local_start(1)-1,local_end(1)+1
+
+
+         bb11(2,i,0)= -bb11(0,i,0)*(1.d0-1.d0/tv(0))-bb11(1,i,0)-bb11(3,i,0)-bb11(4,i,0)
+         bb12(2,i,0)= -bb12(0,i,0)*(1.d0-1.d0/tv(0))-bb12(1,i,0)-bb12(3,i,0)-bb12(4,i,0)
+         bb21(2,i,0)= -bb21(0,i,0)*(1.d0-1.d0/tv(0))-bb21(1,i,0)-bb21(3,i,0)-bb21(4,i,0)
+         bb22(2,i,0)= -bb22(0,i,0)*(1.d0-1.d0/tv(0))-bb22(1,i,0)-bb22(3,i,0)-bb22(4,i,0)
+      
+      enddo
+   endif
    endsubroutine Propagation
 
 !---------------------------------------------
