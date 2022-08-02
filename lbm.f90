@@ -8,7 +8,7 @@ module lbm
    !double precision
    double precision v1,c1,v2,c2
    !control parameter
-   double precision Oh,Ar,Bo
+   double precision Oh,Ar,Bo,Re,Ca,De,gam
    double precision eps
    double precision cs2
    !position parameter
@@ -16,11 +16,12 @@ module lbm
    !density 
    double precision rho1,rho2,rho3
    !relaxation time
-   double precision t1,t2,t3,M,tk,ratio
+   double precision t1,t2,t3,M,tk,ratio,tp,ts
    !surface tension
    double precision sigma12,sigma13,sigma23,sigma1,sigma2,sigma3
    !interface thickness
    double precision delta
+   double precision lambda,uu0
    
    double precision forsx1,forsy1,forsx2,forsy2,forsx3,forsy3,forspx,forspy,forsppx,forsppy,forsnx,forsny
    double precision forsa11,forsa12,forsa21,forsa22
@@ -38,7 +39,7 @@ module lbm
    !distribution function
    double precision,dimension(:,:,:),allocatable:: f,g1,g2,fb,gb1,gb2,b11,b12,b21,b22,bb11,bb12,bb21,bb22
    !density
-   double precision,dimension(:,:),allocatable::rho,aa11,aa12,aa21,aa22,aaa11,aaa12,aaa21,aaa22
+   double precision,dimension(:,:),allocatable::rho,aa11,aa12,aa21,aa22,aaa11,aaa12,aaa21,aaa22,tra
    !pressure
    double precision,dimension(:,:),allocatable:: p,pp
    !viscosity
@@ -48,7 +49,7 @@ module lbm
    !order parameter
    double precision,dimension(:,:),allocatable:: phi1,phi2,phi3,con
    !relaxation time
-   double precision,dimension(:,:),allocatable:: tphi,tau
+   double precision,dimension(:,:),allocatable:: tphi,tau,taup
 
 
    !derivative
@@ -68,6 +69,7 @@ module lbm
    integer max_step,iter,interv
 
    double precision,dimension(0:nq-1)::t
+   integer,dimension(0:nq-1)::bc
    double precision,dimension(0:4)::tv
    integer,dimension(0:nq-1,dim)::e
    integer,dimension(0:4,dim)::ev
@@ -117,9 +119,10 @@ contains
    allocate(aaa12  (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
    allocate(aaa21   (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
    allocate(aaa22   (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
-
+   allocate(tra  (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
 
    !relaxation time
+   allocate(taup   (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
    allocate(tau   (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
    allocate(tphi  (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
    allocate(nu    (local_start(1)-ghost:local_end(1)+ghost,local_start(2)-ghost:local_end(2)+ghost))
@@ -239,7 +242,7 @@ contains
    deallocate(dvy)
    deallocate(dux)
    deallocate(dvx)
-
+   deallocate(tra)
 
    deallocate(phi1)
    deallocate(phi2)
@@ -258,7 +261,7 @@ contains
    integer i,j,k
    open(100,file='input.in',status='old')
    !length and scaling
-   read(100,*)nx,ny,delta
+   read(100,*)nx,ny,delta,Oh,De
    !read(100,*)max_step,interv
    !fluid properties
    
@@ -267,40 +270,32 @@ contains
    cs2=1.d0/3.d0
    !density
    rho1=1.d0
-   rho2=1.d0
-   rho3=0.1d0
+   rho2=0.01d0
 
    !initialization
    r1=0.2d0*nx
    r0=0.2d0*nx
 
-   x1=0.d0*nx
-   y1=r1*0.2d0
-   x0=0.d0*nx
-   y0=y1+r1+delta
+   x1=0.5d0*nx
+   y1=0.5d0*ny-r1-delta/4
+   x0=0.5d0*nx
+   y0=0.5d0*ny+r1+delta/4
 
-
-
-   t1=0.05d0
-   t2=0.01
-   t3=0.05d0
+   t1=0.025
    tk=1e-6
-   ratio=1e-6
+   !relaxation time for droplet
+   t2=0.05
+   !relaxation time for polymer
+   tp=t2*0.5d0
+   !relaxation time for solvent
+   ts=t2-tp
+
+   sigma12=(rho1*cs2*t2/Oh)**2/rho1/r1
+   lambda=De*sqrt(rho1*r1**3/sigma12)
 
 
-   sigma12=1e-7
-   sigma13=sigma12
-   sigma23=sigma12/10
-
-   sigma1=(sigma12+sigma13-sigma23)/2.d0
-   sigma2=(sigma12+sigma23-sigma13)/2.d0
-   sigma3=(sigma23+sigma13-sigma12)/2.d0
-
-   Oh=rho2*t2*cs2/dsqrt(sigma12*rho2*r1)
-   max_step=100
-
-
-   interv=max_step/10
+   max_step=0.3d0*sqrt(rho1*r1**3/sigma12)
+   interv=max_step/20
    endsubroutine DataInput
 
 !-------------------------------------------------------------------------
@@ -310,12 +305,9 @@ contains
       print*,'00000000'
       write(*,'(A24,F7.4)')   "1 Relaxation Time      :",t1
       write(*,'(A24,F7.4)')   "2 Relaxation Time      :",t2
-      write(*,'(A24,F7.4)')   "3 Relaxation Time      :",t3
       write(*,'(A24,F10.8)')  "Surface tension 12     :",sigma12
-      write(*,'(A24,F10.8)')  "Surface tension 13     :",sigma13
-      write(*,'(A24,F10.8)')  "Surface tension 23     :",sigma23
-      write(*,'(A24,F10.6)')  "OH                     :",Oh
-      write(*,'(A24,F10.4)')  "Radius                 :",r1
+      write(*,'(A24,F10.6)')  "Oh                     :",Oh
+      write(*,'(A24,F10.4)')  "lambda                 :",lambda
       write(*,'(A24,I9.2)')   "Maximum # of Steps     :",max_step
       write(*,*)"==========================================="
    endif
@@ -339,6 +331,16 @@ contains
    t(6)=1.d0/36.d0
    t(7)=1.d0/36.d0
    t(8)=1.d0/36.d0
+
+   bc(0)=0
+   bc(1)=3
+   bc(2)=4
+   bc(3)=1
+   bc(4)=2
+   bc(5)=7
+   bc(6)=8
+   bc(7)=5
+   bc(8)=6
 
    tv(0)=1.d0/3.d0
    tv(1)=1.d0/6.d0
@@ -381,92 +383,37 @@ contains
 
    call SetPhase
 
-   if(rank == 0) Then
-      open(200, file  =  'height.dat', status  =  'unknown')
-      write(200,*),'"center"'
-      close(200)
-   endif
-
-
-
    !Initilize distributions
    call PassD(phi1)
    call Gradient(phi1,dx1,dy1)
-
-   call PassD(phi2)
-   call Gradient(phi2,dx2,dy2)
-   
-   call PassD(phi3)
-   call Gradient(phi3,dx3,dy3)
-
-   call PassD(p)
-   call Gradient(p,dpx,dpy)
-
-   call PassD(pp)
-   call Gradient(pp,dppx,dppy)
-   
+   call PassD(rho)
+   call Gradient(rho,drx,dry)
    call PassD(ua)
    call Gradient(ua,dux,duy)
-
    call PassD(va)
    call Gradient(va,dvx,dvy)
 
-
-      do j=local_start(2),local_end(2)
-         do i=local_start(1),local_end(1)
-            !calculation of curvature
-
-            sqd1(i,j) = dsqrt(dx1(i,j)**2+dy1(i,j)**2)+1e-6
-
-            sqd2(i,j) = dsqrt(dx2(i,j)**2+dy2(i,j)**2)+1e-6
+   do j=local_start(2),local_end(2)
+      do i=local_start(1),local_end(1)
+         sqd1(i,j) = dsqrt(dx1(i,j)**2+dy1(i,j)**2)+1e-6
+         divx1(i,j)=dx1(i,j)/sqd1(i,j)
+         divy1(i,j)=dy1(i,j)/sqd1(i,j)
    
-            sqd3(i,j) = dsqrt(dx3(i,j)**2+dy3(i,j)**2)+1e-6
-
-            divx1(i,j)=dx1(i,j)/sqd1(i,j)
-            divy1(i,j)=dy1(i,j)/sqd1(i,j)
-   
-
-            divx2(i,j)=dx2(i,j)/sqd2(i,j)
-            divy2(i,j)=dy2(i,j)/sqd2(i,j)
-   
-
-            divx3(i,j)=dx3(i,j)/sqd3(i,j)
-            divy3(i,j)=dy3(i,j)/sqd3(i,j)
-
-            drx(i,j)=dx1(i,j)*rho1+dx2(i,j)*rho2+dx3(i,j)*rho3
-            dry(i,j)=dy1(i,j)*rho1+dy2(i,j)*rho2+dy3(i,j)*rho3
-   
-         enddo
       enddo
-
-
-
+   enddo
 
    call PassD(divx1)
    call PassD(divy1)
    call div(div1,divx1,divy1)
 
-   call PassD(divx2)
-   call PassD(divy2)
-   call div(div2,divx2,divy2)
-
-   call PassD(divx3)
-   call PassD(divy3)
-   call div(div3,divx3,divy3)
-
-
-
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
-
-
          do iq=0,4
-            gamma5 =  3.d0 * ev(iq,1) * ua(i,j)+3.d0*ev(iq,2)*va(i,j)
-
-            b11(iq,i,j)=tv(iq) * aa11(i,j) * (1.d0+ gamma5)
-            b12(iq,i,j)=tv(iq) * aa12(i,j) * (1.d0+ gamma5)
-            b21(iq,i,j)=tv(iq) * aa21(i,j) * (1.d0+ gamma5)
-            b22(iq,i,j)=tv(iq) * aa22(i,j) * (1.d0+ gamma5)
+            gamma5 = tv(iq)*(1.d0+3.d0*(ev(iq,1) * ua(i,j)+ ev(iq,2) * va(i,j)))
+            b11(iq,i,j)= aa11(i,j) *  gamma5
+            b12(iq,i,j)= aa12(i,j) *  gamma5
+            b21(iq,i,j)= aa21(i,j) *  gamma5
+            b22(iq,i,j)= aa22(i,j) *  gamma5
          enddo
 
       enddo
@@ -474,78 +421,37 @@ contains
 
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
-
-         aaa11(i,j)=phi2(i,j)*(aa11(i,j)-1.d0)
-         aaa12(i,j)=phi2(i,j)*aa12(i,j)
-         aaa21(i,j)=phi2(i,j)*aa21(i,j)
-         aaa22(i,j)=phi2(i,j)*(aa22(i,j)-1.d0)
+         aaa11(i,j)=(aa11(i,j)-1.d0)
+         aaa12(i,j)=aa12(i,j)
+         aaa22(i,j)=(aa22(i,j)-1.d0)
 
          divx11(i,j)=0.d0
          divx12(i,j)=0.d0
-         divx21(i,j)=0.d0
          divx22(i,j)=0.d0
 
          divy11(i,j)=0.d0
          divy12(i,j)=0.d0
-         divy21(i,j)=0.d0
          divy22(i,j)=0.d0
-
       enddo
    enddo
 
 
 
    
-      do j=local_start(2),local_end(2)
+   do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
 
-         psq=phi1(i,j)**2+phi2(i,j)**2+phi3(i,j)**2
 
-         forsx1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dx1(i,j)  
-         forsy1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dy1(i,j)
-   
-         forsx2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dx2(i,j)  
-         forsy2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dy2(i,j)
-   
-         forsx3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dx3(i,j)  
-         forsy3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dy3(i,j)                 
-         
-
-         forspx=-dpx(i,j)
-         forspy=-dpy(i,j)
-
-         forsppx=dppx(i,j)
-         forsppy=dppy(i,j)
-         
-         forsnx=nu(i,j)*(2*dux(i,j)*drx(i,j)+(duy(i,j)+dvx(i,j))*dry(i,j))
-         forsny=nu(i,j)*(2*dvy(i,j)*dry(i,j)+(duy(i,j)+dvx(i,j))*drx(i,j))
-
-         forsax=0.d0!ratio*(divx11(i,j)+divy21(i,j))
-         forsay=0.d0!ratio*(divx12(i,j)+divy22(i,j))
-
+         forsx1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dx1(i,j)  
+         forsy1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dy1(i,j)
+              
+         forsax=0.d0!(divx11(i,j)+divy21(i,j))
+         forsay=0.d0!(divx12(i,j)+divy22(i,j))
 
          sqad1 = 4.d0*phi1(i,j)*(1.d0-phi1(i,j))/delta
-         sqad2 = 4.d0*phi2(i,j)*(1.d0-phi2(i,j))/delta
-         sqad3 = 4.d0*phi3(i,j)*(1.d0-phi3(i,j))/delta
-
-         forphix1 =  (1.d0-phi1(i,j)**2/psq)*sqad1*divx1(i,j)-&
-         phi1(i,j)**2/psq*sqad2*divx2(i,j)-&
-         phi1(i,j)**2/psq*sqad3*divx3(i,j)
- 
-         forphiy1 =  (1.d0-phi1(i,j)**2/psq)*sqad1*divy1(i,j)-&
-         phi1(i,j)**2/psq*sqad2*divy2(i,j)-&
-         phi1(i,j)**2/psq*sqad3*divy3(i,j)
+         forphix1 = sqad1 * divx1(i,j)
+         forphiy1 = sqad1 * divy1(i,j)
                                          
- 
-         forphix2 =  (1.d0-phi2(i,j)**2/psq)*sqad2*divx2(i,j)-&
-         phi2(i,j)**2/psq*sqad1*divx1(i,j)-&
-         phi2(i,j)**2/psq*sqad3*divx3(i,j)
- 
-         forphiy2 =  (1.d0-phi2(i,j)**2/psq)*sqad2*divy2(i,j)-&
-         phi2(i,j)**2/psq*sqad1*divy1(i,j)-&
-         phi2(i,j)**2/psq*sqad3*divy3(i,j)
-
-
          do iq=0,nq-1
             
             gamma =  3.d0*(e(iq,1) * ua(i,j)+     &
@@ -555,25 +461,19 @@ contains
                      1.5d0*(ua(i,j)**2+va(i,j)**2)
 
 
-            fors =   (e(iq,1)-ua(i,j))*(1.d0+gamma)*t(iq)/rho(i,j)*&
-                     (forspx+forsnx+forsx1+forsx2+forsx3)+&
-                     (e(iq,2)-va(i,j))*(1.d0+Gamma)*t(iq)/rho(i,j)*&
-                     (forspy+forsny+forsy1+forsy2+forsy3)+&
-                     (e(iq,1)-ua(i,j))*t(iq)*forsppx+&
-                     (e(iq,2)-va(i,j))*t(iq)*forsppy
+            fors =   (e(iq,1)-ua(i,j))*(1.d0+gamma)*t(iq)*(forsx1)+&
+                     (e(iq,2)-va(i,j))*(1.d0+Gamma)*t(iq)*(forsy1)+&
+                     (e(iq,1)-ua(i,j))*(gamma)*t(iq)*&
+                     (drx(i,j)*cs2)+&
+                     (e(iq,2)-va(i,j))*(gamma)*t(iq)*&
+                     (dry(i,j)*cs2)
          
             forphi1 = t(iq)* (1.d0+gamma)*  &
                      ((e(iq,1)-ua(i,j))*forphix1+ &
                      (e(iq,2)-va(i,j))*forphiy1)
 
-            forphi2 = t(iq)* (1.d0+gamma)*  &
-                     ((e(iq,1)-ua(i,j))*forphix2+ &
-                     (e(iq,2)-va(i,j))*forphiy2)
-
-
              g1(iq,i,j) = t(iq) * phi1(i,j) * (1.d0 + gamma) - 0.5d0 * forphi1
-             g2(iq,i,j) = t(iq) * phi2(i,j) * (1.d0 + gamma) - 0.5d0 * forphi2
-             f(iq,i,j)  = t(iq) * pp(i,j) + t(iq) * gamma * cs2 - 0.5d0 * fors
+             f(iq,i,j)  = t(iq) * p(i,j) + t(iq) * gamma * cs2 - 0.5d0 * fors
 
          enddo
       enddo
@@ -598,21 +498,17 @@ contains
             b12(iq,i,j)=0.d0
             bb12(iq,i,j)=0.d0
 
-            b21(iq,i,j)=0.d0
-            bb21(iq,i,j)=0.d0
-
             b22(iq,i,j)=0.d0
             bb22(iq,i,j)=0.d0
          enddo
          aa11(i,j)=1.d0
          aa12(i,j)=0.d0
-         aa21(i,j)=0.d0
          aa22(i,j)=1.d0
 
          aaa11(i,j)=0.d0
          aaa12(i,j)=0.d0
-         aaa21(i,j)=0.d0
          aaa22(i,j)=0.d0
+         tra(i,j)=aa11(i,j)+aa22(i,j)
       enddo
    enddo
    do j=local_start(2)-ghost,local_end(2)+ghost
@@ -623,29 +519,18 @@ contains
 
             g1(iq,i,j)=0.d0
             gb1(iq,i,j)=0.d0
-
-            g2(iq,i,j)=0.d0
-            gb2(iq,i,j)=0.d0
-
-            
+  
          enddo
-         dist=2.d0*(j-y1)/delta
-
          dist1=2.d0*(sqrt((i-x0)**2+(j-y0)**2+0.d0)-r0)/delta
+         dist =2.d0*(sqrt((i-x1)**2+(j-y1)**2+0.d0)-r0)/delta
 
-         phi1(i,j)=0.5d0-0.5d0*tanh(dist1)
+         phi1(i,j)=1d0-0.5d0*tanh(dist1)-0.5d0*tanh(dist)
+         phi2(i,j)=1.d0-phi1(i,j)
 
-         phi2(i,j)=0.5d0-0.5d0*tanh(dist)
-
-         phi3(i,j)=1.d0-phi1(i,j)-phi2(i,j)
-
-         con(i,j)=-phi1(i,j)+phi3(i,j)
-
-         tau(i,j)=t1*phi1(i,j)+t3*phi3(i,j)+t2*phi2(i,j)
+         taup(i,j)=tp*cs2/lambda*phi1(i,j)
+         tau(i,j)=t1*phi1(i,j)+t2*phi2(i,j)
          tphi(i,j)=M/cs2
-         rho(i,j)=rho1*phi1(i,j)+rho2*phi2(i,j)+rho3*phi3(i,j)
-         nu(i,j)=tau(i,j)*cs2
-         mu(i,j)=nu(i,j)*rho(i,j)
+         rho(i,j)=rho1*phi1(i,j)+rho2*phi2(i,j)
 
          p(i,j)=0.d0
          pp(i,j)=0.d0
@@ -657,6 +542,8 @@ contains
       enddo
    enddo
 
+   call MPI_BARRIER(CART_COMM,ierr)
+
    endsubroutine SetPhase
 
 
@@ -667,24 +554,21 @@ contains
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
 
-         forsa11=2.d0*aa11(i,j)*dux(i,j)+aa21(i,j)*dvx(i,j)+aa12(i,j)*dvx(i,j)
-         forsa12=aa12(i,j)*dux(i,j)+aa11(i,j)*duy(i,j)+aa22(i,j)*dvx(i,j)+aa12(i,j)*dvy(i,j)
-         forsa21=aa21(i,j)*dux(i,j)+aa11(i,j)*duy(i,j)+aa22(i,j)*dvx(i,j)+aa21(i,j)*dvy(i,j)
-         forsa22=2.d0*aa22(i,j)*dvy(i,j)+aa21(i,j)*duy(i,j)+aa12(i,j)*duy(i,j)
+         forsa11=2.d0*aa11(i,j)*dux(i,j)+2.d0*aa12(i,j)*duy(i,j)-(aa11(i,j)-1.d0)/lambda
+         forsa12=aa12(i,j)*dvy(i,j)+aa11(i,j)*dvx(i,j)+aa22(i,j)*duy(i,j)+aa12(i,j)*dux(i,j)-aa12(i,j)/lambda
+         forsa22=2.d0*aa22(i,j)*dvy(i,j)+2.d0*aa12(i,j)*dvx(i,j)-(aa22(i,j)-1.d0)/lambda
+
          do iq=0,4
-            gamma5 =  3.d0*(ev(iq,1) * ua(i,j)+     &
-                           ev(iq,2) * va(i,j))
+            gamma5 =  tv(iq)*(1.d0+3.d0*(ev(iq,1) * ua(i,j)+ ev(iq,2) * va(i,j)))
 
-            aaeq11=tv(iq) * aa11(i,j) * (1.d0+ gamma5)- 0.5d0 * forsa11*tv(iq)* (1.d0+gamma5)
-            aaeq12=tv(iq) * aa12(i,j) * (1.d0+ gamma5)- 0.5d0 * forsa12*tv(iq)* (1.d0+gamma5)
-            aaeq21=tv(iq) * aa21(i,j) * (1.d0+ gamma5)- 0.5d0 * forsa21*tv(iq)* (1.d0+gamma5)
-            aaeq22=tv(iq) * aa22(i,j) * (1.d0+ gamma5)- 0.5d0 * forsa22*tv(iq)* (1.d0+gamma5)
+            aaeq11= aa11(i,j) *  gamma5- 0.5d0 * forsa11*gamma5
+            aaeq12= aa12(i,j) *  gamma5- 0.5d0 * forsa12*gamma5
+            aaeq22= aa22(i,j) *  gamma5- 0.5d0 * forsa22*gamma5
 
 
-            bb11(iq,i,j)=b11(iq,i,j)-1.d0/(0.5d0+tk)*(b11(iq,i,j)-aaeq11)+forsa11*tv(iq)* (1.d0+gamma5)
-            bb12(iq,i,j)=b12(iq,i,j)-1.d0/(0.5d0+tk)*(b12(iq,i,j)-aaeq12)+forsa12*tv(iq)* (1.d0+gamma5)
-            bb21(iq,i,j)=b21(iq,i,j)-1.d0/(0.5d0+tk)*(b21(iq,i,j)-aaeq21)+forsa21*tv(iq)* (1.d0+gamma5)
-            bb22(iq,i,j)=b22(iq,i,j)-1.d0/(0.5d0+tk)*(b22(iq,i,j)-aaeq22)+forsa22*tv(iq)* (1.d0+gamma5)
+            bb11(iq,i,j)=b11(iq,i,j)-1.d0/(0.5d0+tk)*(b11(iq,i,j)-aaeq11)+forsa11*gamma5
+            bb12(iq,i,j)=b12(iq,i,j)-1.d0/(0.5d0+tk)*(b12(iq,i,j)-aaeq12)+forsa12*gamma5
+            bb22(iq,i,j)=b22(iq,i,j)-1.d0/(0.5d0+tk)*(b22(iq,i,j)-aaeq22)+forsa22*gamma5
          enddo
 
       enddo
@@ -693,52 +577,17 @@ contains
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
 
-         psq=phi1(i,j)**2+phi2(i,j)**2+phi3(i,j)**2
 
-         forsx1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dx1(i,j)  
-         forsy1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dy1(i,j)
-   
-         forsx2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dx2(i,j)  
-         forsy2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dy2(i,j)
-   
-         forsx3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dx3(i,j)  
-         forsy3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dy3(i,j)            
-            
+         forsx1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dx1(i,j)  
+         forsy1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dy1(i,j)
+           
 
-
-         forspx=-dpx(i,j)
-         forspy=-dpy(i,j)
-
-         forsppx=dppx(i,j)
-         forsppy=dppy(i,j)
-         
-         forsnx=nu(i,j)*(2*dux(i,j)*drx(i,j)+(duy(i,j)+dvx(i,j))*dry(i,j))
-         forsny=nu(i,j)*(2*dvy(i,j)*dry(i,j)+(duy(i,j)+dvx(i,j))*drx(i,j))
-
-         forsax=ratio*(divx11(i,j)+divy21(i,j))
-         forsay=ratio*(divx12(i,j)+divy22(i,j))
+         forsax=(divx11(i,j)+divy12(i,j))
+         forsay=(divx12(i,j)+divy22(i,j))
 
          sqad1 = 4.d0*phi1(i,j)*(1.d0-phi1(i,j))/delta
-         sqad2 = 4.d0*phi2(i,j)*(1.d0-phi2(i,j))/delta
-         sqad3 = 4.d0*phi3(i,j)*(1.d0-phi3(i,j))/delta
-
-         forphix1 =  (1.d0-phi1(i,j)**2/psq)*sqad1*divx1(i,j)-&
-         phi1(i,j)**2/psq*sqad2*divx2(i,j)-&
-         phi1(i,j)**2/psq*sqad3*divx3(i,j)
-
-         forphiy1 =  (1.d0-phi1(i,j)**2/psq)*sqad1*divy1(i,j)-&
-         phi1(i,j)**2/psq*sqad2*divy2(i,j)-&
-         phi1(i,j)**2/psq*sqad3*divy3(i,j)
-
-
-         forphix2 =  (1.d0-phi2(i,j)**2/psq)*sqad2*divx2(i,j)-&
-         phi2(i,j)**2/psq*sqad1*divx1(i,j)-&
-         phi2(i,j)**2/psq*sqad3*divx3(i,j)
-
-         forphiy2 =  (1.d0-phi2(i,j)**2/psq)*sqad2*divy2(i,j)-&
-         phi2(i,j)**2/psq*sqad1*divy1(i,j)-&
-         phi2(i,j)**2/psq*sqad3*divy3(i,j)
-
+         forphix1 =  sqad1*divx1(i,j)
+         forphiy1 =  sqad1*divy1(i,j)
 
          do iq=0,nq-1
 
@@ -749,34 +598,26 @@ contains
                      1.5d0*(ua(i,j)**2+va(i,j)**2)
 
 
-            fors =   (e(iq,1)-ua(i,j))*(1.d0+gamma)*t(iq)/rho(i,j)*&
-                     (forspx+forsnx+forsx1+forsx2+forsx3+forsax)+&
-                     (e(iq,2)-va(i,j))*(1.d0+Gamma)*t(iq)/rho(i,j)*&
-                     (forspy+forsny+forsy1+forsy2+forsy3+forsay)+&
-                     (e(iq,1)-ua(i,j))*t(iq)*forsppx+&
-                     (e(iq,2)-va(i,j))*t(iq)*forsppy
+            fors =   (e(iq,1)-ua(i,j))*(1.d0+gamma)*t(iq)*&
+                     (forsx1+forsax)+&
+                     (e(iq,2)-va(i,j))*(1.d0+Gamma)*t(iq)*&
+                     (forsy1+forsay)+&
+                     (e(iq,1)-ua(i,j))*(gamma)*t(iq)*&
+                     (drx(i,j)*cs2)+&
+                     (e(iq,2)-va(i,j))*(gamma)*t(iq)*&
+                     (dry(i,j)*cs2)
          
             forphi1 = t(iq)* (1.d0+gamma)*  &
                      ((e(iq,1)-ua(i,j))*forphix1+ &
                      (e(iq,2)-va(i,j))*forphiy1)
 
-            forphi2 = t(iq)* (1.d0+gamma)*  &
-                     ((e(iq,1)-ua(i,j))*forphix2+ &
-                     (e(iq,2)-va(i,j))*forphiy2)      
-      
                
             geq1 = t(iq) * phi1(i,j) * (1.d0 + gamma) - 0.5d0 * forphi1
-            geq2 = t(iq) * phi2(i,j) * (1.d0 + gamma) - 0.5d0 * forphi2
-            feq  = t(iq) * pp(i,j) + t(iq) * gamma * cs2 - 0.5d0 * fors
+            feq  = t(iq) * p(i,j) + t(iq) * gamma * cs2 - 0.5d0 * fors
 
 
-            gb1(iq,i,j)=g1(iq,i,j)-1.d0/(0.5d0+tphi(i,j))*&
-            (g1(iq,i,j)-geq1)+forphi1   
-
-            gb2(iq,i,j)=g2(iq,i,j)-1.d0/(0.5d0+tphi(i,j))*&
-            (g2(iq,i,j)-geq2)+forphi2
-
-            fb(iq,i,j)=f(iq,i,j)-1.d0/(0.5d0+tau(i,j))*(f(iq,i,j)-feq)+fors
+            gb1(iq,i,j)=g1(iq,i,j)-(g1(iq,i,j)-geq1)/(0.5d0+tphi(i,j))+forphi1   
+            fb(iq,i,j)=f(iq,i,j)-(f(iq,i,j)-feq)/(0.5d0+tau(i,j))+fors
    
          enddo
       enddo
@@ -786,107 +627,14 @@ contains
 
    subroutine BoundaryCondition
    integer i,j,iq,io
-   call PassF(fb)
-   call PassF(gb1)
-   call PassF(gb2)
-
-   call PassV(bb11)
-   call PassV(bb12)
-   call PassV(bb21)
-   call PassV(bb22)
-
-
-   if(nx.eq.local_end(1))then
-      do j=local_start(2)-1,local_end(2)+1
-         fb (3,nx+1,j) = fb (1,nx-1,j)
-         gb1(3,nx+1,j) = gb1(1,nx-1,j)
-         gb2(3,nx+1,j) = gb2(1,nx-1,j)
-
-         fb (6,nx+1,j) = fb (5,nx-1,j)
-         gb1(6,nx+1,j) = gb1(5,nx-1,j)
-         gb2(6,nx+1,j) = gb2(5,nx-1,j)
-      
-         fb (7,nx+1,j) = fb (8,nx-1,j)
-         gb1(7,nx+1,j) = gb1(8,nx-1,j)
-         gb2(7,nx+1,j) = gb2(8,nx-1,j)
-
-         !bb11(3,nx+1,j)= -bb11(0,nx,j)*(1.d0-1.d0/tv(0))-bb11(1,nx-1,j)-bb11(2,nx,j-1)-bb11(4,nx,j+1)
-         !bb12(3,nx+1,j)= -bb12(0,nx,j)*(1.d0-1.d0/tv(0))-bb12(1,nx-1,j)-bb12(2,nx,j-1)-bb12(4,nx,j+1)
-         !bb21(3,nx+1,j)= -bb21(0,nx,j)*(1.d0-1.d0/tv(0))-bb21(1,nx-1,j)-bb21(2,nx,j-1)-bb21(4,nx,j+1)
-         !bb22(3,nx+1,j)= -bb22(0,nx,j)*(1.d0-1.d0/tv(0))-bb22(1,nx-1,j)-bb22(2,nx,j-1)-bb22(4,nx,j+1)
-      
-
-      enddo
-
-   elseif(0.eq.local_start(1))then
-      do j=local_start(2)-1,local_end(2)+1
-         fb (1,-1,j) = fb (3,1,j)
-         gb1(1,-1,j) = gb1(3,1,j)
-         gb2(1,-1,j) = gb2(3,1,j)
-
-         fb (5,-1,j) = fb (6,1,j)
-         gb1(5,-1,j) = gb1(6,1,j)
-         gb2(5,-1,j) = gb2(6,1,j)
-      
-         fb (8,-1,j) = fb (7,1,j)
-         gb1(8,-1,j) = gb1(7,1,j)
-         gb2(8,-1,j) = gb2(7,1,j)
-
-         !bb11(1,-1,j)= -bb11(0,0,j)*(1.d0-1.d0/tv(0))-bb11(3,1,j)-bb11(2,0,j-1)-bb11(4,0,j+1)
-         !bb12(1,-1,j)= -bb12(0,0,j)*(1.d0-1.d0/tv(0))-bb12(3,1,j)-bb12(2,0,j-1)-bb12(4,0,j+1)
-         !bb21(1,-1,j)= -bb21(0,0,j)*(1.d0-1.d0/tv(0))-bb21(3,1,j)-bb21(2,0,j-1)-bb21(4,0,j+1)
-         !bb22(1,-1,j)= -bb22(0,0,j)*(1.d0-1.d0/tv(0))-bb22(3,1,j)-bb22(2,0,j-1)-bb22(4,0,j+1)
-      
-
-      
-      enddo
-   endif
-
-   if(ny.eq.local_end(2))then
-      do i=local_start(1)-1,local_end(1)+1
-         fb (4,i,ny+1) = fb (2,i,ny-1)
-         gb1(4,i,ny+1) = gb1(2,i,ny-1)
-         gb2(4,i,ny+1) = gb2(2,i,ny-1)
-      
-         fb (7,i,ny+1) = fb (5,i-2,ny-1)
-         gb1(7,i,ny+1) = gb1(5,i-2,ny-1)
-         gb2(7,i,ny+1) = gb2(5,i-2,ny-1)
-      
-         fb (8,i,ny+1) = fb (6,i+2,ny-1)
-         gb1(8,i,ny+1) = gb1(6,i+2,ny-1)
-         gb2(8,i,ny+1) = gb2(6,i+2,ny-1)
-
-         !bb11(4,i,ny+1)=  -bb11(0,i,ny)*(1.d0-1.d0/tv(0))-bb11(1,i-1,ny)-bb11(2,i,ny-1)-bb11(3,i+1,ny)
-         !bb12(4,i,ny+1)=  -bb12(0,i,ny)*(1.d0-1.d0/tv(0))-bb12(1,i-1,ny)-bb12(2,i,ny-1)-bb12(3,i+1,ny)
-         !bb21(4,i,ny+1)=  -bb21(0,i,ny)*(1.d0-1.d0/tv(0))-bb21(1,i-1,ny)-bb21(2,i,ny-1)-bb21(3,i+1,ny)
-         !bb22(4,i,ny+1)=  -bb22(0,i,ny)*(1.d0-1.d0/tv(0))-bb22(1,i-1,ny)-bb22(2,i,ny-1)-bb22(3,i+1,ny)
-      enddo
-
-   elseif(0.eq.local_start(2))then
-      do i=local_start(1)-1,local_end(1)+1
-         fb (2,i,-1) = fb (4,i,1)
-         gb1(2,i,-1) = gb1(4,i,1)
-         gb2(2,i,-1) = gb2(4,i,1)
-      
-         fb (5,i,-1) = fb (7,i+2,1)
-         gb1(5,i,-1) = gb1(7,i+2,1)
-         gb2(5,i,-1) = gb2(7,i+2,1)
-      
-         fb (6,i,-1) = fb (8,i-2,1)
-         gb1(6,i,-1) = gb1(8,i-2,1)
-         gb2(6,i,-1) = gb2(8,i-2,1)
-
-         !bb11(2,i,-1)= -bb11(0,i,0)*(1.d0-1.d0/tv(0))-bb11(1,i-1,0)-bb11(3,i+1,0)-bb11(4,i,1)
-         !bb12(2,i,-1)= -bb12(0,i,0)*(1.d0-1.d0/tv(0))-bb12(1,i-1,0)-bb12(3,i+1,0)-bb12(4,i,1)
-         bb21(2,i,-1)= -bb21(0,i,0)*(1.d0-1.d0/tv(0))-bb21(1,i-1,0)-bb21(3,i+1,0)-bb21(4,i,1)
-         bb22(2,i,-1)= -bb22(0,i,0)*(1.d0-1.d0/tv(0))-bb22(1,i-1,0)-bb22(3,i+1,0)-bb22(4,i,1)
-      
-      enddo
-   endif
 
 
    
-
+   call PassF(fb)
+   call PassF(gb1)
+   call PassV(bb11)
+   call PassV(bb12)
+   call PassV(bb22)
 
    call MPI_BARRIER(CART_COMM,ierr)
    endsubroutine BoundaryCondition
@@ -901,21 +649,20 @@ contains
          do iq=0,nq-1            
             f(iq,i,j)=fb(iq,i-e(iq,1),j-e(iq,2))  
             g1(iq,i,j)=gb1(iq,i-e(iq,1),j-e(iq,2))         
-            g2(iq,i,j)=gb2(iq,i-e(iq,1),j-e(iq,2))   
          enddo
       enddo
    enddo
-
+   call MPI_BARRIER(CART_COMM,ierr)
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)      
          do iq=0,4          
             b11(iq,i,j)=bb11(iq,i-ev(iq,1),j-ev(iq,2))  
             b12(iq,i,j)=bb12(iq,i-ev(iq,1),j-ev(iq,2))         
-            b21(iq,i,j)=bb21(iq,i-ev(iq,1),j-ev(iq,2))   
             b22(iq,i,j)=bb22(iq,i-ev(iq,1),j-ev(iq,2))   
          enddo
       enddo
    enddo
+      call MPI_BARRIER(CART_COMM,ierr)
    endsubroutine Propagation
 
 !---------------------------------------------
@@ -928,78 +675,22 @@ contains
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
          phi1(i,j)=0.d0
-         phi2(i,j)=0.d0
          do iq=0,nq-1
             phi1(i,j)=phi1(i,j)+g1(iq,i,j)
-            phi2(i,j)=phi2(i,j)+g2(iq,i,j)
          enddo
-         if(local_start(2).eq.0)then
-            phi1(i,0)=0.d0
-            phi2(i,0)=1.d0
-         endif
-         phi3(i,j)=1.d0-phi1(i,j)-phi2(i,j)
-         con(i,j)=-phi1(i,j)+phi3(i,j)
 
-         rho(i,j)=rho1*phi1(i,j)+rho2*phi2(i,j)+rho3*phi3(i,j)
+         phi2(i,j)=1.d0-phi1(i,j)
 
-         tau(i,j)=t1*phi1(i,j)+t3*phi3(i,j)+t2*phi2(i,j)
-         nu(i,j)=tau(i,j)*cs2
-         mu(i,j)=nu(i,j)*rho(i,j)
-
+         rho(i,j)=rho1*phi1(i,j)+rho2*phi2(i,j)
+         tau(i,j)=t1*phi1(i,j)+t2*phi2(i,j)
+         taup(i,j)=tp*cs2/lambda*phi1(i,j)
       enddo
    enddo
-
-   do j=local_start(2),local_end(2)
-      do i=local_start(1),local_end(1)
-
-         if(rho(i,j)<rho3)then
-            rho(i,j)=rho3
-         else if(rho(i,j)>rho1)then
-            rho(i,j)=rho1
-         endif
-
-      enddo
-   enddo
-
-
-
-
-   do j=local_start(2),local_end(2)
-      do i=local_start(1),local_end(1)
-
-         pp(i,j)=0.d0
-         do iq=0,nq-1
-            pp(i,j)=pp(i,j)+f(iq,i,j)
-         enddo
-         pp(i,j)=pp(i,j)-ua(i,j)/2.d0*dppx(i,j)-va(i,j)/2.d0*dppy(i,j)
-         p(i,j)=pp(i,j)*rho(i,j)
-      enddo
-   enddo
-
-
-
    call PassD(phi1)
    call Gradient(phi1,dx1,dy1)
-   
-   call PassD(phi2)
-   call Gradient(phi2,dx2,dy2)
-   
-   call PassD(phi3)
-   call Gradient(phi3,dx3,dy3)
 
-   call PassD(p)
-   call Gradient(p,dpx,dpy)
-
-   call PassD(pp)
-   call Gradient(pp,dppx,dppy)
-   
-   call PassD(ua)
-   call Gradient(ua,dux,duy)
-
-   call PassD(va)
-   call Gradient(va,dvx,dvy)
-
-
+   call PassD(rho)
+   call Gradient(rho,drx,dry)
 
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
@@ -1008,99 +699,76 @@ contains
          divx1(i,j)=dx1(i,j)/sqd1(i,j)
          divy1(i,j)=dy1(i,j)/sqd1(i,j)
 
-         sqd2(i,j) = dsqrt(dx2(i,j)**2+dy2(i,j)**2)+1e-6
-         divx2(i,j)=dx2(i,j)/sqd2(i,j)
-         divy2(i,j)=dy2(i,j)/sqd2(i,j)
-
-         sqd3(i,j) = dsqrt(dx3(i,j)**2+dy3(i,j)**2)+1e-6
-         divx3(i,j)=dx3(i,j)/sqd3(i,j)
-         divy3(i,j)=dy3(i,j)/sqd3(i,j)
-
-         drx(i,j)=dx1(i,j)*rho1+dx2(i,j)*rho2+dx3(i,j)*rho3
-         dry(i,j)=dy1(i,j)*rho1+dy2(i,j)*rho2+dy3(i,j)*rho3
-
       enddo
    enddo
    call PassD(divx1)
    call PassD(divy1)
    call div(div1,divx1,divy1)
 
-   call PassD(divx2)
-   call PassD(divy2)
-   call div(div2,divx2,divy2)
-
-   call PassD(divx3)
-   call PassD(divy3)
-   call div(div3,divx3,divy3)
-
-      do j=local_start(2),local_end(2)
+   do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
-         rhou(i,j)=0.d0
-         rhov(i,j)=0.d0
-
-         do iq=0,nq-1
-            rhou(i,j)=rhou(i,j)+f(iq,i,j)*e(iq,1)
-            rhov(i,j)=rhov(i,j)+f(iq,i,j)*e(iq,2)
-         enddo
-
+          
+          rhou(i,j)=0.d0
+          rhov(i,j)=0.d0
+          do iq=0,8
+              rhou(i,j)=rhou(i,j)+f(iq,i,j)*e(iq,1)
+              rhov(i,j)=rhov(i,j)+f(iq,i,j)*e(iq,2)
+          enddo
       enddo
-   enddo
+  enddo
+
 
    do j=local_start(2),local_end(2)
    do i=local_start(1),local_end(1)
 
-         forsx1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dx1(i,j)  
-         forsy1=-3.d0/2.d0*delta*sigma1*div1(i,j)*sqd1(i,j)*dy1(i,j)
-   
-         forsx2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dx2(i,j)  
-         forsy2=-3.d0/2.d0*delta*sigma2*div2(i,j)*sqd2(i,j)*dy2(i,j)
-   
-         forsx3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dx3(i,j)  
-         forsy3=-3.d0/2.d0*delta*sigma3*div3(i,j)*sqd3(i,j)*dy3(i,j)            
-            
+         forsx1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dx1(i,j)  
+         forsy1=-3.d0/2.d0*delta*sigma12*div1(i,j)*sqd1(i,j)*dy1(i,j)
 
-         forspx=-dpx(i,j)
-         forspy=-dpy(i,j)
+         forsax=(divx11(i,j)+divy12(i,j))
+         forsay=(divx12(i,j)+divy22(i,j))
 
-         forsppx=dppx(i,j)*rho(i,j)
-         forsppy=dppy(i,j)*rho(i,j)
-         
-         forsnx=nu(i,j)*(2*dux(i,j)*drx(i,j)+(duy(i,j)+dvx(i,j))*dry(i,j))
-         forsny=nu(i,j)*(2*dvy(i,j)*dry(i,j)+(duy(i,j)+dvx(i,j))*drx(i,j)) 
-         forsax=ratio*(divx11(i,j)+divy21(i,j))
-         forsay=ratio*(divx12(i,j)+divy22(i,j))
-
-         ua(i,j)=rhou(i,j)/cs2+(forspx+forsppx+forsnx+forsx1+forsx2+forsx3+forsax)/2.d0/rho(i,j)
-         va(i,j)=rhov(i,j)/cs2+(forspy+forsppy+forsny+forsy1+forsy2+forsy3+forsay)/2.d0/rho(i,j)
+         ua(i,j)=rhou(i,j)/cs2+0.5d0*(forsx1+forsax)
+         va(i,j)=rhov(i,j)/cs2+0.5d0*(forsy1+forsay)
       enddo          
    enddo
+
+   do j=local_start(2),local_end(2)
+      do i=local_start(1),local_end(1)
+         p(i,j)=0.d0
+         do iq=0,nq-1
+            p(i,j)=p(i,j)+f(iq,i,j)
+         enddo
+            p(i,j)=p(i,j)+(ua(i,j)*drx(i,j)*cs2+va(i,j)*dry(i,j)*cs2)/2.d0
+      enddo
+   enddo
+   call MPI_BARRIER(CART_COMM,ierr)
+
    call PassD(ua)
    call Gradient(ua,dux,duy)
 
    call PassD(va)
    call Gradient(va,dvx,dvy)
+
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
          aa11(i,j)=0.d0
          aa12(i,j)=0.d0
-         aa21(i,j)=0.d0
          aa22(i,j)=0.d0
 
          do iq=0,4
             aa11(i,j)=aa11(i,j)+b11(iq,i,j)
             aa12(i,j)=aa12(i,j)+b12(iq,i,j)
-            aa21(i,j)=aa21(i,j)+b21(iq,i,j)
             aa22(i,j)=aa22(i,j)+b22(iq,i,j)
          enddo
-         forsa11=2.d0*aa11(i,j)*dux(i,j)+aa21(i,j)*dvx(i,j)+aa12(i,j)*dvx(i,j)
-         forsa12=aa12(i,j)*dux(i,j)+aa11(i,j)*duy(i,j)+aa22(i,j)*dvx(i,j)+aa12(i,j)*dvy(i,j)
-         forsa21=aa21(i,j)*dux(i,j)+aa11(i,j)*duy(i,j)+aa22(i,j)*dvx(i,j)+aa21(i,j)*dvy(i,j)
-         forsa22=2.d0*aa22(i,j)*dvy(i,j)+aa21(i,j)*duy(i,j)+aa12(i,j)*duy(i,j)
+         forsa11=2.d0*aa11(i,j)*dux(i,j)+2.d0*aa12(i,j)*duy(i,j)-(aa11(i,j)-1.d0)/lambda
+         forsa12=aa12(i,j)*dvy(i,j)+aa11(i,j)*dvx(i,j)+aa22(i,j)*duy(i,j)+aa12(i,j)*dux(i,j)-aa12(i,j)/lambda
+         forsa22=2.d0*aa22(i,j)*dvy(i,j)+2.d0*aa12(i,j)*dvx(i,j)-(aa22(i,j)-1.d0)/lambda
 
-         aa11(i,j)=aa11(i,j)+forsa11/2.d0
-         aa12(i,j)=aa12(i,j)+forsa12/2.d0
-         aa21(i,j)=aa21(i,j)+forsa21/2.d0
-         aa22(i,j)=aa22(i,j)+forsa22/2.d0
+         aa11(i,j)=(aa11(i,j)+forsa11/2.d0)
+         aa12(i,j)=(aa12(i,j)+forsa12/2.d0)
+         aa22(i,j)=(aa22(i,j)+forsa22/2.d0)
+
+         tra(i,j) = aa11(i,j)+aa22(i,j)
 
       enddo
    enddo
@@ -1108,23 +776,19 @@ contains
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
 
-         aaa11(i,j)=phi2(i,j)*(aa11(i,j)-1.d0)
-         aaa12(i,j)=phi2(i,j)*aa12(i,j)
-         aaa21(i,j)=phi2(i,j)*aa21(i,j)
-         aaa22(i,j)=phi2(i,j)*(aa22(i,j)-1.d0)
+         aaa11(i,j)=taup(i,j)*(aa11(i,j)-1.d0)
+         aaa12(i,j)=taup(i,j)*aa12(i,j)
+         aaa22(i,j)=taup(i,j)*(aa22(i,j)-1.d0)
       enddo
    enddo
 
    call PassD(aaa11)
    call PassD(aaa12)
-   call PassD(aaa21)
    call PassD(aaa22)
 
    call Gradient(aaa11,divx11,divy11)
    call Gradient(aaa12,divx12,divy12)
-   call Gradient(aaa21,divx21,divy21)
    call Gradient(aaa22,divx22,divy22)
-
 
    endsubroutine PostProcessing 
 !----------------------------------------
@@ -1141,64 +805,51 @@ contains
       INTEGER(KIND=MPI_OFFSET_KIND):: offset
       INTEGER:: Status(MPI_STATUS_SIZE)
       INTEGER::ierr,fh
-      DOUBLE PRECISION::umin,umax,vmin,vmax,rhomin,rhomax,pmin,pmax,ppmin,ppmax,disum,dismin,dismax
+      DOUBLE PRECISION::umin,umax,vmin,vmax,rhomin,rhomax,pmin,pmax,ppmin,ppmax,disum,dismin,dismax,trmin,trmax
       DOUBLE PRECISION::phi1min,phi1max,phi2min,phi2max,phi3min,phi3max,conmin,conmax,psum,psum2,dissum
       INTEGER::tp
       REAL::ttp
       Double precision::fp
       INTEGER,DIMENSION(dim):: start
       CHARACTER:: version*8,NULCHAR*1,filename*50,num*4
-      ppp=0.d0
+
       do j=local_start(2),local_end(2)
          do i=local_start(1),local_end(1)
-            xx(i,j)=0.5*(i+0.d0)/nx
-            yy(i,j)=0.6*(j+0.d0)/ny
-            if(i.ne.0)then
-            ppp(i,j) = j*phi1(i,j)*2
-            ppp2(i,j)= j*phi2(i,j)*2
-            else
-               ppp(i,j) = j*phi1(i,j)
-               ppp2(i,j)= j*phi2(i,j)
-            endif
+
+            !print*,ua(i,j)
+            xx(i,j)=2.d0*(i+0.d0)/nx
+            yy(i,j)=3.d0*(j+0.d0)/ny
+
          enddo
       enddo
-      psum=sum(ppp)
-      psum2=sum(ppp2)
-      dissum=sum(dissip)
-
       
+
       call MPI_BARRIER(CART_COMM,ierr)
-      call mpi_reduce(minval(phi1), phi1min, 1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(phi1), phi1max, 1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(phi1), phi1min, 1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(phi1), phi1max, 1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(aa11), phi2min, 1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(aa11), phi2max, 1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(phi2), phi2min, 1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(phi2), phi2max, 1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(aa12), phi3min, 1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(aa12), phi3max, 1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(tra),  trmin,  1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(tra),  trmax,  1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(con),  conmin,  1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(con),  conmax,  1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(ua),   umin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(ua),   umax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(rho),  rhomin,  1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(rho),  rhomax,  1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(va),   vmin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(va),   vmax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(ua),   umin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(ua),   umax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(minval(p),    pmin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
+      call MPI_REDUCE(maxval(p),    pmax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(va),   vmin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(va),   vmax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(p),    pmin,    1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(p),    pmax,    1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
-      call mpi_reduce(minval(aaa11),   ppmin,   1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(aaa11),   ppmax,   1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
+      call MPI_BARRIER(CART_COMM,ierr)
 
-      call mpi_reduce(minval(dissip),   dismin,   1,MPI_double_precision,mpi_min,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(maxval(dissip),   dismax,   1,MPI_double_precision,mpi_max,0,MPI_COMM_WORLD,ierr)
 
       start=(/ghost,ghost/)
+
       offset=0
 
 
@@ -1221,7 +872,7 @@ contains
          call MPI_File_seek (fh,offset,MPI_seek_set,ierr)
          !header
          !version number
-         version='#!TDV112'
+         version='#!TDV191'
          call MPI_File_write(fh,version,8,MPI_char,status,ierr)
          !INTEGER 1
          tp=1
@@ -1235,7 +886,7 @@ contains
          call MPI_File_write(fh,tp,             1,MPI_integer,status,ierr)
          !3*4+8=20
          !VARIABLE NAME
-         tp=11
+         tp=8
          call MPI_File_write(fh,tp,             1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar('x'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
@@ -1256,24 +907,13 @@ contains
          call MPI_File_write(fh,ichar('2'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar('p'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('h'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('i'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('3'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('c'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('o'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('n'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('p'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
+         call MPI_File_write(fh,ichar('t'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar('r'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('h'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('o'),     1,MPI_integer,status,ierr)
+         call MPI_File_write(fh,ichar('A'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('d'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar('s'),     1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
-         !20+4*37=168
+
+         !20+4*25=120
          !ZONE MARKER
          ttp=299.0
          call MPI_File_write(fh,ttp,            1,MPI_REAL,status,ierr)
@@ -1287,7 +927,7 @@ contains
          call MPI_File_write(fh,ichar('0'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar('1'),     1,MPI_integer,status,ierr)
          call MPI_File_write(fh,ichar(nulchar), 1,MPI_integer,status,ierr)
-         !168+10*4=208
+         !120+10*4=160
          !PARAENTS
          tp=-1
          call MPI_File_write(fh,tp,             1,MPI_integer,status,ierr)
@@ -1322,7 +962,7 @@ contains
          !AUXILIARY
          tp=0
          call MPI_File_write(fh,tp,             1,MPI_integer,status,ierr)
-         !208+13*4=260
+         !160+13*4=212
          !EOHMARKER
          ttp=357.0
          call MPI_File_write(fh,ttp,             1,MPI_REAL,status,ierr)
@@ -1340,9 +980,6 @@ contains
          call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
          call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
          call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
-         call MPI_File_write(fh,tp,              1,MPI_integer,status,ierr)
          
          !PASSIVE VARIABLE
          tp=0
@@ -1352,15 +989,15 @@ contains
          !ZONE NUMBER
          tp=-1
          call MPI_File_write(fh,tp,                1,MPI_integer,status,ierr)
-         !260+16*4=324
+         !212+13*4=264
          !MIN AND MAX VALUE FLOAT 64
          fp=0.d0
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=0.5d0
+         fp=2.d0
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
          fp=0.d0
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=0.6d0
+         fp=3.d0
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
          fp=umin
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
@@ -1378,30 +1015,21 @@ contains
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
          fp=phi2max
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=phi3min
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=phi3max
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=conmin
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=conmax
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
          fp=pmin
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
          fp=pmax
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=rhomin
+         fp=trmin
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=rhomax
+         fp=trmax
          call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=dismin
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         fp=dismax
-         call MPI_File_write(fh,fp, 1,MPI_double_precision,status,ierr)
-         !324+22*8=500
+
+
+
+         !264+16*8=392
       endif
 
-      offset=500
+      offset=392
 
       call MPI_File_set_view(fh,offset,MPI_double_precision,filetype,&
       "native",MPI_INFO_NULL,ierr)
@@ -1411,22 +1039,13 @@ contains
       CALL MPI_FILE_WRITE_all(fh, ua   ,1, datatype, MPI_STATUS_ignore, ierr)
       CALL MPI_FILE_WRITE_all(fh, va   ,1, datatype, MPI_STATUS_ignore, ierr)
       CALL MPI_FILE_WRITE_all(fh, phi1 ,1, datatype, MPI_STATUS_ignore, ierr)
-      CALL MPI_FILE_WRITE_all(fh, aa11 ,1, datatype, MPI_STATUS_ignore, ierr)
-      CALL MPI_FILE_WRITE_all(fh, aa12 ,1, datatype, MPI_STATUS_ignore, ierr)
-      CALL MPI_FILE_WRITE_all(fh, con  ,1, datatype, MPI_STATUS_ignore, ierr)
+      CALL MPI_FILE_WRITE_all(fh, phi2 ,1, datatype, MPI_STATUS_ignore, ierr)
       CALL MPI_FILE_WRITE_all(fh, p    ,1, datatype, MPI_STATUS_ignore, ierr)
-      CALL MPI_FILE_WRITE_all(fh, rho  ,1, datatype, MPI_STATUS_ignore, ierr)
-      CALL MPI_FILE_WRITE_all(fh, dissip   ,1, datatype, MPI_STATUS_ignore, ierr)
+      CALL MPI_FILE_WRITE_all(fh, tra  ,1, datatype, MPI_STATUS_ignore, ierr)
 
       call MPI_File_close(fh,ierr)
-      call mpi_reduce(dissum  ,   disum,   1,MPI_double_precision,mpi_sum,0,MPI_COMM_WORLD,ierr)
-      call mpi_reduce(psum/(3.1415926*r1**2)   ,   psum,   1,MPI_double_precision,mpi_sum,0,MPI_COMM_WORLD,ierr)
-      psum=(psum-y1)/2/r1
-      psum2=(psum2-y1)/y1
+      call MPI_BARRIER(CART_COMM,ierr)
       if(rank == 0) Then
-         open(200, file = 'height.dat', access = 'append', action = 'write')
-         write(200,*)psum,psum2,disum
-         close(200)
          print*
          print*, 'The result '//num(1:4)//' is written'
          print*
@@ -1446,26 +1065,6 @@ contains
 
    
    call MPI_BARRIER(CART_COMM,ierr)
-   if(nx.eq.local_end(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         c(nx+1,j)=c(nx-1,j)
-      enddo
-   elseif(0.eq.local_start(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         c(-1,j)=c(1,j)
-
-      enddo
-   endif
-
-   if(ny.eq.local_end(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         c(i,ny+1)=c(i,ny-1)
-      enddo
-   elseif(0.eq.local_start(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         c(i,-1)=c(i,1)
-      enddo
-   endif
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
          
@@ -1490,31 +1089,6 @@ subroutine div(cc,uu,vv)
 
    
    call MPI_BARRIER(CART_COMM,ierr)
-
-   if(nx.eq.local_end(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         uu(nx+1,j)=-uu(nx-1,j)
-         vv(nx+1,j)=vv(nx-1,j)
-      enddo
-   elseif(0.eq.local_start(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         uu(-1,j)=-uu(1,j)
-         vv(-1,j)=vv(1,j)
-      enddo
-   endif
-
-   if(ny.eq.local_end(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         uu(i,ny+1)=uu(i,ny-1)
-         vv(i,ny+1)=vv(i,ny-1)
-
-      enddo
-   elseif(0.eq.local_start(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         uu(i,-1)=uu(i,1)
-         vv(i,-1)=vv(i,1)
-      enddo
-   endif
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
 
@@ -1556,26 +1130,6 @@ subroutine Gradient5(c,dcx,dcy)
 
    
    call MPI_BARRIER(CART_COMM,ierr)
-   if(nx.eq.local_end(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         c(nx+1,j)=c(nx-1,j)
-      enddo
-   elseif(0.eq.local_start(1))then
-      do j=local_start(2)-ghost,local_end(2)+ghost
-         c(-1,j)=c(1,j)
-
-      enddo
-   endif
-
-   if(ny.eq.local_end(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         c(i,ny+1)=c(i,ny-1)
-      enddo
-   elseif(0.eq.local_start(2))then
-      do i=local_start(1)-ghost,local_end(1)+ghost
-         c(i,-1)=c(i,1)
-      enddo
-   endif
    do j=local_start(2),local_end(2)
       do i=local_start(1),local_end(1)
          
